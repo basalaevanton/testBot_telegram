@@ -1,6 +1,8 @@
 const { from } = require('form-data');
 const TelegramApi = require('node-telegram-bot-api');
 const { gameOptions, againOptions } = require('./options');
+const sequelize = require('./db');
+const UserModel = require('./models');
 
 const token = '5135697417:AAH9_vrYF1PB2s2UhbvwzmPCO7YOCN5ExQg';
 
@@ -18,7 +20,14 @@ const startGame = async (chatId) => {
   await bot.sendMessage(chatId, 'Guessing!', gameOptions);
 };
 
-const start = () => {
+const start = async () => {
+  try {
+    await sequelize.authenticate();
+    await sequelize.sync();
+  } catch (error) {
+    console.log(e);
+  }
+
   bot.setMyCommands([
     { command: '/start', description: 'Start welcom' },
     { command: '/info', description: 'Info user' },
@@ -31,23 +40,29 @@ const start = () => {
     const chatId = msg.chat.id;
     //   bot.sendMessage(chatId, `You write me ${text}`);
 
-    if (text === '/start') {
-      await bot.sendSticker(
-        chatId,
-        'https://tlgrm.ru/_/stickers/d97/c1e/d97c1e8a-943c-37c4-963f-8db69b18db05/2.webp'
-      );
-      return bot.sendMessage(chatId, 'Welcom to my chatBot');
+    try {
+      if (text === '/start') {
+        await UserModel.create({ chatId });
+        await bot.sendSticker(
+          chatId,
+          'https://tlgrm.ru/_/stickers/d97/c1e/d97c1e8a-943c-37c4-963f-8db69b18db05/2.webp'
+        );
+        return bot.sendMessage(chatId, 'Welcom to my chatBot');
+      }
+      if (text === '/info') {
+        const user = await UserModel.findOne({ chatId });
+        return bot.sendMessage(
+          chatId,
+          `Your name ${msg.from.first_name} ${msg.from.last_name}, in game you have ${user.right} rights answers and ${user.wrong} wrong answers`
+        );
+      }
+      if (text === '/game') {
+        return startGame(chatId);
+      }
+      return bot.sendMessage(chatId, 'I don`t understand you');
+    } catch (error) {
+      return bot.sendMessage(chatId, 'Error at the bot');
     }
-    if (text === '/info') {
-      return bot.sendMessage(
-        chatId,
-        `Your name ${msg.from.first_name} ${msg.from.last_name}`
-      );
-    }
-    if (text === '/game') {
-      return startGame(chatId);
-    }
-    return bot.sendMessage(chatId, 'I don`t understand you');
   });
 
   bot.on('callback_query', async (msg) => {
@@ -56,19 +71,25 @@ const start = () => {
     if (data === '/again') {
       return startGame(chatId);
     }
-    if (data === chats[chatId]) {
-      return bot.sendMessage(
+
+    const user = await UserModel.findOne({ chatId });
+    if (data == chats[chatId]) {
+      user.right += 1;
+      await bot.sendMessage(
         chatId,
         `Congratulations, you guessed it, this number is ${chats[chatId]}`,
         againOptions
       );
     } else {
-      return bot.sendMessage(
+      user.wrong += 1;
+      await bot.sendMessage(
         chatId,
         `Sorry, you not guessed  ${chats[chatId]}`,
         againOptions
       );
     }
+    await user.save();
+
     // bot.sendMessage(chatId, `You choose number ${data}`);
     // console.log(msg);
   });
